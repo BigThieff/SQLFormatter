@@ -53,3 +53,7 @@ tasks {
 dependencies {
     implementation("com.alibaba:druid:1.2.9")  // 推荐版本
 }
+
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+}

@@ -5,4 +5,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "SQLFromatter"
+rootProject.name = "SQLFormatter"

@@ -1,7 +1,8 @@
-package com.bling.sqlfromatter;
+package com.bling.sqlformatter;
 
 import com.alibaba.druid.DbType;
 import com.alibaba.druid.sql.SQLUtils;
+import com.alibaba.druid.sql.SQLUtils.FormatOption;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -20,14 +21,13 @@ public class FormatSqlAction extends AnAction {
 
     private static final Pattern SQL_TAG_PATTERN = Pattern.compile(
             "(\\s*)<(select|insert|update|delete)([^>]*)>([\\s\\S]*?)</\\2>",
-            Pattern.CASE_INSENSITIVE
+            Pattern.CASE_INSENSITIVE | Pattern.MULTILINE
     );
 
     @Override
     public ActionUpdateThread getActionUpdateThread() {
-        return ActionUpdateThread.EDT;  // 选择在UI线程执行，如果动作逻辑是UI相关的
+        return ActionUpdateThread.EDT;
     }
-
 
     @Override
     public void actionPerformed(AnActionEvent e) {
@@ -35,7 +35,7 @@ public class FormatSqlAction extends AnAction {
         PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
         Editor editor = e.getData(CommonDataKeys.EDITOR);
 
-        if (psiFile == null || editor == null || !psiFile.getName().endsWith(".xml")) {
+        if (project == null || psiFile == null || editor == null || !psiFile.getName().endsWith(".xml")) {
             return;
         }
 
@@ -61,9 +61,7 @@ public class FormatSqlAction extends AnAction {
         );
 
         if (result == Messages.YES) {
-            WriteCommandAction.runWriteCommandAction(project, () ->
-                    document.setText(formattedText)
-            );
+            WriteCommandAction.runWriteCommandAction(project, () -> document.setText(formattedText));
         }
     }
 
@@ -72,25 +70,36 @@ public class FormatSqlAction extends AnAction {
         StringBuffer sb = new StringBuffer();
 
         while (matcher.find()) {
-            String indent = matcher.group(1);      // 缩进空格
-            String tag = matcher.group(2);         // 标签名
-            String attrs = matcher.group(3);       // 属性
-            String sqlContent = matcher.group(4);  // SQL 原始内容
+            String indent = matcher.group(1);
+            String tag = matcher.group(2);
+            String attrs = matcher.group(3);
+            String sqlContent = matcher.group(4);
 
-            // 格式化 SQL
-            String formattedSql = SQLUtils.format(sqlContent, DbType.mysql);
+            String rawSql = extractSql(sqlContent);
+            String formattedSql = SQLUtils.format(rawSql, DbType.mysql, new FormatOption(true, true));
 
-            // 按缩进重新处理换行符（为每一行加上原始缩进 + 一个 TAB）
             String indentedSql = formatWithIndent(formattedSql, indent + "    ");
-
-            // 构造替换文本
             String replacement = indent + "<" + tag + attrs + ">\n"
-                    + indentedSql + "\n" + indent + "</" + tag + ">";
+                    + indent + "    <![CDATA[\n"
+                    + indentedSql + "\n"
+                    + indent + "    ]]>\n"
+                    + indent + "</" + tag + ">";
+
             matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
 
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    private String extractSql(String sqlContent) {
+        // 移除 CDATA 包裹（如果存在）
+        if (sqlContent.contains("<![CDATA[")) {
+            return sqlContent.replaceAll("<!\\[CDATA\\[", "")
+                    .replaceAll("]]>", "")
+                    .trim();
+        }
+        return sqlContent.trim();
     }
 
     private String formatWithIndent(String sql, String indent) {
@@ -103,14 +112,21 @@ public class FormatSqlAction extends AnAction {
     }
 
     private String truncate(String str) {
-        return str.length() > 500 ? str.substring(0, 500) + "\n...(内容过长省略)" : str;
+        return str.length() > 500 ? str.substring(0, 500) + "\n...(too long)" : str;
     }
+
+//    @Override
+//    public void update(AnActionEvent e) {
+//        PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
+//        e.getPresentation().setEnabledAndVisible(
+//                psiFile != null && psiFile.getName().endsWith(".xml")
+//        );
+//    }
 
     @Override
     public void update(AnActionEvent e) {
         PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
-        e.getPresentation().setEnabledAndVisible(
-                psiFile != null && psiFile.getName().endsWith("Mapper.xml")
-        );
+        boolean visible = psiFile != null;
+        e.getPresentation().setEnabledAndVisible(visible);
     }
 }
